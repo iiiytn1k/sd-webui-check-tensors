@@ -6,7 +6,7 @@ import safetensors.torch
 import gradio as gr
 from torch import Tensor
 from modules import script_callbacks, shared
-from modules import sd_models
+from modules import sd_models, hashes
 from modules.ui import create_refresh_button
 from modules.ui_components import FormRow
 from typing import List
@@ -20,11 +20,12 @@ def add_tab():
     with gr.Blocks(analytics_enabled=False) as ui:
         with gr.Row().style(equal_height=False):
             with gr.Column(variant="compact"):
-                with FormRow(elem_id="modelmerger_models"):
+                with FormRow():
                     model_name = gr.Dropdown(sd_models.checkpoint_tiles(), elem_id="check_tensors_model_name", label="Stable Diffusion checkpoint")
                     create_refresh_button(model_name, sd_models.list_models, lambda: {"choices": sd_models.checkpoint_tiles()}, "refresh_checkpoint_A")
-
-                all_deviations = gr.Checkbox(label="Print all deviations", value=True)
+                with FormRow():
+                    all_deviations = gr.Checkbox(label="Print all deviations", value=True)
+                    calc_hashes = gr.Checkbox(label="Calculate hash", value=True)
                 model_check = gr.Button("Check tensors", elem_id="check_tensors_button", label="Check", variant='primary')
 
             with gr.Column(variant="compact"):
@@ -34,7 +35,8 @@ def add_tab():
                 fn=check_tensors,
                 inputs=[
                     model_name,
-                    all_deviations
+                    all_deviations,
+                    calc_hashes
                 ],
                 outputs=[checker_results]
             )
@@ -46,11 +48,12 @@ def load_model(path):
         model_file = safetensors.torch.load_file(path, device="cpu")
     else:
         model_file = torch.load(path, map_location="cpu")
+
     state_dict = model_file["state_dict"] if "state_dict" in model_file else model_file
     return state_dict
 
 
-def check_tensors(model, all_deviations):
+def check_tensors(model, all_deviations, calc_hashes):
     output = ""
     sum_dev = 0
     max_dev = 0
@@ -61,11 +64,17 @@ def check_tensors(model, all_deviations):
 
     shared.state.begin()
     shared.state.job = "check_tensors"
-
     model_info = sd_models.checkpoints_list[model]
+    output += f"{model_info.name}\n"
+
+    if calc_hashes:
+        #  Check for hash entry in cache.json. If not, then calculate.
+        sha256_value = hashes.sha256(model_info.filename, "checkpoint/" + model_info.name)
+        output += f"New format hash: {sha256_value[0:10]}\n"
+        output += f"Old format hash: {model_info.hash}\n"
+
     shared.state.textinfo = f"Loading {model_info.filename}..."
     checkpoint = load_model(model_info.filename)
-    output += f"{model}\n"
 
     if "cond_stage_model.transformer.text_model.embeddings.position_ids" in checkpoint:
         check_tensor = checkpoint["cond_stage_model.transformer.text_model.embeddings.position_ids"]
