@@ -24,7 +24,6 @@ def add_tab():
                     model_name = gr.Dropdown(sd_models.checkpoint_tiles(), elem_id="check_tensors_model_name", label="Stable Diffusion checkpoint")
                     create_refresh_button(model_name, sd_models.list_models, lambda: {"choices": sd_models.checkpoint_tiles()}, "refresh_checkpoint_A")
                 with FormRow():
-                    all_deviations = gr.Checkbox(label="Print all deviations", value=False)
                     calc_hashes = gr.Checkbox(label="Calculate hash", value=True)
                 model_check = gr.Button("Check tensors", elem_id="check_tensors_button", label="Check", variant='primary')
 
@@ -35,7 +34,6 @@ def add_tab():
                 fn=check_tensors,
                 inputs=[
                     model_name,
-                    all_deviations,
                     calc_hashes
                 ],
                 outputs=[checker_results]
@@ -53,11 +51,8 @@ def load_model(path):
     return state_dict
 
 
-def check_tensors(model, all_deviations, calc_hashes):
+def check_tensors(model, calc_hashes):
     output = ""
-    sum_dev = 0
-    max_dev = 0
-    min_dev = 0
     wrong_index = []
     if model == "":
         return "Please choose a checkpoint"
@@ -70,8 +65,9 @@ def check_tensors(model, all_deviations, calc_hashes):
     if calc_hashes:
         #  Check for hash entry in cache.json. If not, then calculate.
         sha256_value = hashes.sha256(model_info.filename, "checkpoint/" + model_info.name)
-        output += f"New format hash: {sha256_value[0:10]}\n"
-        output += f"Old format hash: {model_info.hash}\n"
+        output += f"Hashes:\n"
+        output += f"AUTOV2: {sha256_value[0:10]}\n"
+        output += f"AUTOV1: {model_info.hash}\n\n"
 
     shared.state.textinfo = f"Loading {model_info.filename}..."
     checkpoint = load_model(model_info.filename)
@@ -81,7 +77,8 @@ def check_tensors(model, all_deviations, calc_hashes):
     elif "cond_stage_model.transformer.embeddings.position_ids" in checkpoint:
         check_tensor = checkpoint["cond_stage_model.transformer.embeddings.position_ids"]
     else:
-        return "Invalid checkpoint file or checkpoint in SDv2 format version"
+        output += f"Invalid checkpoint file or checkpoint in SDv2/SDXL format"
+        return output
 
     output += f"{check_tensor}\n"
     output += f"Type: {check_tensor.dtype}\n"
@@ -90,20 +87,9 @@ def check_tensors(model, all_deviations, calc_hashes):
         value_error = tensor_value-i
         if abs(value_error)>0.0001:
             wrong_index.append(i)
-        sum_dev += abs(value_error)
-        if value_error > max_dev:
-            max_dev = value_error
-        if value_error < min_dev:
-            min_dev = value_error
-        if all_deviations:
-            output += f"{i}: {tensor_value:.5f}  {value_error:.5f}\n"
     if len(wrong_index)>0:
         output += f"\nWrong CLIP indexes: {wrong_index}\n"
-        output += f"Recommend to fix this checkpoint\n"
-    if all_deviations:
-        output += f"\nMax deviation: {(max_dev):.5f}\n"
-        output += f"Min deviation: {(min_dev):.5f}\n"
-
+        output += f"It is recommended to fix this checkpoint.\n"
     shared.state.end()
     return output
 
